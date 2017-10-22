@@ -870,6 +870,10 @@ static stbi_uc *stbi__pnm_load(stbi__context *s, int *x, int *y, int *comp, int 
 static int      stbi__pnm_info(stbi__context *s, int *x, int *y, int *comp);
 #endif
 
+static int      stbi__nbl_test(stbi__context *s);
+static stbi_uc *stbi__nbl_load(stbi__context *s, int *x, int *y, int *comp, int req_comp);
+static int      stbi__nbl_info(stbi__context *s, int *x, int *y, int *comp);
+
 // this is not threadsafe
 static const char *stbi__g_failure_reason;
 
@@ -947,6 +951,8 @@ static unsigned char *stbi__load_main(stbi__context *s, int *x, int *y, int *com
    #ifndef STBI_NO_PNM
    if (stbi__pnm_test(s))  return stbi__pnm_load(s,x,y,comp,req_comp);
    #endif
+
+   if(stbi__nbl_test(s))   return stbi__nbl_load(s,x,y,comp,0);
 
    #ifndef STBI_NO_HDR
    if (stbi__hdr_test(s)) {
@@ -6292,6 +6298,59 @@ STBIDEF int stbi_info_from_callbacks(stbi_io_callbacks const *c, void *user, int
 }
 
 #endif // STB_IMAGE_IMPLEMENTATION
+
+static int stbi__nbl_test(stbi__context *s) {
+	static stbi_uc nbl_sig[8] = {'{', '"', '#', '_', 'N'};
+	int i;
+	for (i=0; i<4; i++) {
+		stbi__get8(s);
+	}
+
+	for (i=0; i < 5; ++i)
+		if (stbi__get8(s) != nbl_sig[i]) return stbi__err("bad nbl sig","Not an NBLog V8");
+	return 1;
+}
+
+static stbi_uc *stbi__nbl_load(stbi__context *s, int *x, int *y, int *comp, int req_comp)
+{
+	*x = 640;
+	*y = 480;
+	*comp = 1;
+	stbi_uc *img_iter = s->img_buffer - 9;
+	s->img_buffer = img_iter;
+
+	uint32_t desclen = stbi__get32be(s);
+	printf("%u\n", desclen);
+
+	int i;
+	for(i=0; i<desclen; i++) {
+		char curr = stbi__get8(s);
+		printf("%c", curr);
+	}
+
+	// todo: Check length of image bytestream and allocate appropriately
+	uint32_t imglen = stbi__get32be(s);
+	printf("%u\n", imglen);
+
+	uint8_t *out = (uint8_t *) malloc(sizeof(uint8_t) * 921600);
+	long outindex = 0;
+
+	while(i < 153600) {
+		uint8_t y1 = stbi__get8(s);
+		uint8_t u  = stbi__get8(s);
+		uint8_t y2 = stbi__get8(s);
+		uint8_t v  = stbi__get8(s);
+
+		stbi__YCbCr_to_RGB_row(&(out[outindex]), &y1, &u, &v, 1, 0);
+		outindex += 3;
+		stbi__YCbCr_to_RGB_row(&(out[outindex]), &y2, &u, &v, 1, 0);
+		outindex += 3;
+
+		i++;
+	}
+
+	return out;
+}
 
 /*
    revision history:
